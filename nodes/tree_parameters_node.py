@@ -19,6 +19,7 @@ class MtreeParameters(Node, BaseNode):
         name="output",
         default="preview", update = BaseNode.property_changed)
     resolution: IntProperty(min=0, default=16, update = BaseNode.property_changed)
+
     create_leafs: BoolProperty(default = False, update = BaseNode.property_changed)
     leaf_amount: IntProperty(min=1, default=3000, update = BaseNode.property_changed)
     leaf_max_radius: FloatProperty(min=0, default=.1, update = BaseNode.property_changed)
@@ -29,6 +30,16 @@ class MtreeParameters(Node, BaseNode):
     leaf_flatten: FloatProperty(min=0, max=1, default=.2, update = BaseNode.property_changed)
     leaf_weight: FloatProperty(min=-1, max=1, default=0, update = BaseNode.property_changed)
 
+    create_fruits: BoolProperty(default = False, update = BaseNode.property_changed)
+    fruit_amount: IntProperty(min=1, default=3000, update = BaseNode.property_changed)
+    fruit_max_radius: FloatProperty(min=0, default=.1, update = BaseNode.property_changed)
+    fruit_dupli_object: PointerProperty(type=bpy.types.Object, name="leaf", update = BaseNode.property_changed)
+    fruit_size: FloatProperty(min=0, default=.1, update = BaseNode.property_changed)
+    fruit_extremity_only: BoolProperty(name="extremities only", default=False, update = BaseNode.property_changed)
+    fruit_spread: FloatProperty(min=0, max=1, default=.2, update = BaseNode.property_changed)
+    fruit_flatten: FloatProperty(min=0, max=1, default=.2, update = BaseNode.property_changed)
+    fruit_weight: FloatProperty(min=-1, max=1, default=0, update = BaseNode.property_changed)
+
     create_armature: BoolProperty(default=False, update = BaseNode.property_changed)
     armature_min_radius: FloatProperty(min=0, max=1, default=.08, update = BaseNode.property_changed)
 
@@ -38,7 +49,8 @@ class MtreeParameters(Node, BaseNode):
     last_execution_info: StringProperty() # this propperty is not be in the properties variable in order to avoid loop
 
     properties = ["resolution", "create_leafs", "leaf_amount", "leaf_max_radius", "leaf_weight", "leaf_dupli_object", "leaf_size",
-                  "leaf_extremity_only", "leaf_flatten", "leaf_spread", "mesh_type", "create_armature", "armature_min_radius"]
+                  "leaf_extremity_only", "leaf_flatten", "leaf_spread", "mesh_type", "create_fruits", "fruit_amount", "fruit_max_radius", "fruit_weight", "fruit_dupli_object", "fruit_size",
+                  "fruit_extremity_only", "fruit_flatten", "fruit_spread", "create_armature", "armature_min_radius"]
 
     def init(self, context):
         self.name = MtreeParameters.bl_label
@@ -52,7 +64,7 @@ class MtreeParameters(Node, BaseNode):
             self.active_tree_object = None
             change_level = "tree_execution"
 
-        tree_ob, leaf_ob, armature_ob = get_current_object("MESH" if self.mesh_type == "final" else "CURVE", active_tree=self.active_tree_object)
+        tree_ob, leaf_ob, fruit_ob, armature_ob = get_current_object_debug("MESH" if self.mesh_type == "final" else "CURVE", active_tree=self.active_tree_object)
         if self.active_tree_object is None and (tree_ob is None or not tree_ob.select_get()):
             change_level = "tree_execution"
         
@@ -98,6 +110,14 @@ class MtreeParameters(Node, BaseNode):
             create_particle_system(leaf_ob, self.leaf_amount, self.leaf_dupli_object, self.leaf_size)
         elif leaf_ob != None: # if there should not be leafs yet an emitter exists, delete it
             bpy.data.objects.remove(leaf_ob, do_unlink=True) # delete leaf object
+    
+        if self.create_fruits:
+            if change_level in {"tree_execution", "fruits_emitter"}:
+                fruit_ob = generate_fruits_object(tree, self.fruit_amount, self.fruit_weight, self.fruit_max_radius, self.fruit_spread, self.fruit_flatten, self.fruit_extremity_only, fruit_ob, tree_ob)
+            create_particle_system(fruit_ob, self.fruit_amount, self.fruit_dupli_object, self.fruit_size)
+        elif fruit_ob != None: # if there should not be fruits yet an emitter exists, delete it
+            bpy.data.objects.remove(fruit_ob, do_unlink=True) # delete fruit object
+
         t3 = time.time()
         self.has_changed = False
         print("tree generation duration : {}".format(t1-t0))
@@ -143,6 +163,20 @@ class MtreeParameters(Node, BaseNode):
                 box.prop(self, "leaf_weight")
                 box.prop(self, "leaf_spread")
                 box.prop(self, "leaf_flatten")
+
+        box = layout.box()
+        box.prop(self, "create_fruits")
+        if self.create_fruits:
+            box.prop(self, "fruit_amount")
+            box.prop(self, "fruit_max_radius")
+            box.prop(self, "fruit_dupli_object")
+            box.prop(self, "fruit_size")
+            box.prop(self, "fruit_extremity_only")
+            if not self.fruit_extremity_only:
+                box.prop(self, "fruit_weight")
+                box.prop(self, "fruit_spread")
+                box.prop(self, "fruit_flatten")
+
         
         box = layout.box()
         box.prop(self, "create_armature")
@@ -184,10 +218,55 @@ def get_current_object(tree_ob_type, active_tree):
         if parent is not None and parent.get("is_tree"): # if parent is a tree (it should be)
             tree_ob = parent
             if tree_ob.parent is not None and tree_ob.parent.type == 'ARMATURE':
-                armature_ob = tree_ob.parent
-    
+                armature_ob = tree_ob.parent    
     
     return tree_ob, leaf_ob, armature_ob
+
+def get_current_object_debug(tree_ob_type, active_tree):
+    '''' return active object if it is a valid tree and potentially the leaf emitter attached to it '''
+    ob = bpy.context.object
+    if active_tree is None: # if there is no active tree
+        if ob is None or not ob.select_get(): # if ob is not selected or non existent
+            return None, None, None, None
+    else:
+        ob = active_tree
+            
+    tree_ob = None
+    leaf_ob = None
+    fruit_ob = None
+    armature_ob = None
+    if ob.get("is_tree") is not None: # if true then the active object is a tree
+        if tree_ob is None and ob.type == tree_ob_type: # check if the object is of correct type
+            tree_ob = ob
+        for child in ob.children: # looking if the tree has a leaf emitter
+            if child.get("is_leaf") is not None: # if true then the child is a leaf emitter
+                leaf_ob = child
+            if child.get("is_fruit") is not None: # if true then the child is a leaf emitter
+                fruit_ob = child                
+        if ob.parent is not None and ob.parent.type == 'ARMATURE':
+            print("found parent")
+            armature_ob = ob.parent
+
+        if ob.type != tree_ob_type: # if types are mismatched, delete ob
+            bpy.data.objects.remove(ob, do_unlink=True)
+    
+    elif ob.get("is_leaf"): # if true then the active object is a leaf emitter
+        leaf_ob = ob
+        parent = ob.parent
+        if parent is not None and parent.get("is_tree"): # if parent is a tree (it should be)
+            tree_ob = parent
+            if tree_ob.parent is not None and tree_ob.parent.type == 'ARMATURE':
+                armature_ob = tree_ob.parent    
+
+    elif ob.get("is_fruit"): # if true then the active object is a leaf emitter
+        fruit_ob = ob
+        parent = ob.parent
+        if parent is not None and parent.get("is_tree"): # if parent is a tree (it should be)
+            tree_ob = parent
+            if tree_ob.parent is not None and tree_ob.parent.type == 'ARMATURE':
+                armature_ob = tree_ob.parent   
+
+    return tree_ob, leaf_ob, fruit_ob, armature_ob
 
 def generate_tree_object(ob, tree, resolution, tree_property="is_tree"):
     ''' Create the tree mesh/object '''
@@ -287,6 +366,24 @@ def generate_leafs_object(tree, number, weight, max_radius, spread, flatten, ext
     ob.parent = tree_ob # make sure leafe emitter is child of tree object
     return ob
 
+def generate_fruits_object(tree, number, weight, max_radius, spread, flatten, extremity_only, ob=None, tree_ob=None):
+    ''' Create the particle system emitter object used for the leafs '''
+    mesh = bpy.data.meshes.new("fruits")
+    if ob == None: # if no object is specified, create one        
+        ob = bpy.data.objects.new('fruits', mesh)
+        collection = bpy.context.scene.collection
+        collection.objects.link(ob)
+        ob['is_fruit'] = True # create custom object parameter to recognise tree object
+    else:
+        old_mesh = ob.data
+        ob.data = mesh
+        bpy.data.meshes.remove(old_mesh)
+        
+    verts, faces = tree.get_fruit_emitter_data(number, weight, max_radius, spread, flatten, extremity_only) # emitter mesh data
+    mesh.from_pydata(verts, [], faces) # fill object mesh with new data
+    ob.parent = tree_ob # make sure leafe emitter is child of tree object
+    return ob
+
 def create_particle_system(ob, number, dupli_object, size):
     """ Creates a particle system for the leafs emitter"""
     leaf = None #particle system
@@ -365,10 +462,14 @@ def get_tree_changes_level(last_execution_info, new_execution_info):
                     return "tree_execution"
                 elif prop in {"create_leafs", "leaf_max_radius", "leaf_amount", "leaf_weight", "leaf_spread", "leaf_flatten", "leaf_extremity_only"}:
                     leaf_emitter = True
+                elif prop in {"create_fruits", "fruit_max_radius", "fruit_amount", "fruit_weight", "fruit_spread", "fruit_flatten", "fruit_extremity_only"}:
+                    fruit_emitter = True                   
                 else:
                     particle_system = True
     if leaf_emitter:
         return "leafs_emitter"
+    if fruit_emitter:
+        return "fruits_emitter"
     if particle_system:
         return "particle_system"
 

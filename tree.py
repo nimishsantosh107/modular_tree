@@ -194,6 +194,38 @@ class MTree:
         
         return verts, faces
 
+    def get_fruit_emitter_data(self, number, weight, max_radius, spread, flatten, extremity_only):
+        leaf_candidates = []
+        self.stem.get_leaf_candidates(leaf_candidates, max_radius)
+        if not extremity_only:
+            if (number > len(leaf_candidates)):
+                factor = number // len([i for i in leaf_candidates if not i[-1]]) # remove extremities from factor because they won't participate in candidate addition
+                add_candidates(leaf_candidates, factor)
+            leaf_candidates = sample(leaf_candidates, number)
+        else:
+            leaf_candidates = [i for i in leaf_candidates if i[-1]]
+        verts = []
+        faces = []
+
+        for position, direction, length, radius, is_end in leaf_candidates:
+            tangent = Vector((0,0,1)).cross(direction).normalized()
+            if not is_end: # only change direction when leaf is not at a branch extremity
+                tangent = (randint(0,1) * 2 - 1) * tangent # randomize sign of tangent
+                direction = direction.lerp(tangent, spread)
+                direction.z *= (1-flatten)
+                direction.z -= weight
+                direction.normalize()
+            x_axis = direction.orthogonal()
+            y_axis = direction.cross(x_axis)
+            v1 = position + x_axis * .01
+            v3 = position + y_axis * .01
+            v2 = position - x_axis * .01
+            n_verts = len(verts)
+            verts.extend([v3, v2, v1])
+            faces.append((n_verts, n_verts+1, n_verts+2))
+        
+        return verts, faces
+
 
     def twig(self, radius, length, branch_number, randomness, resolution, gravity_strength, flatten):
         self.stem = MTreeNode(Vector((0,0,0)), Vector((1,0,0)), radius*.1, 0)
