@@ -12,12 +12,12 @@
 # along with this program. If not, see <http://www.gnu.org/licenses/>.
 
 bl_info = {
-    "name": "Mtree",
+    "name": "Mtree Debug",
     "author": "Maxime Herpin",
     "version": (3, 1, 0),
-    "blender": (2, 80, 0),
+    "blender": (2, 93, 0),
     "location": "View3D > Tools > Tree > Make Tree",
-    "description": "Create natural trees with the node editor",
+    "description": "Create natural trees with the node editor\nNOTE: **No Fruits**",
     "wiki_url": "https://github.com/MaximeHerpin/modular_tree/wiki",
     "tracker_url": "https://github.com/MaximeHerpin/modular_tree/issues/new",
     "category": "Add Mesh"}
